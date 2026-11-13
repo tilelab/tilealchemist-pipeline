@@ -1,0 +1,16 @@
+# The run test.yml builds.
+#
+# OpenFreeMap through tests/plugin's source, which test.yml names. The
+# config names no schema, so the run takes the plugin's from the source.
+plugins = ["./plugin"]
+
+# Tile data roughly triples per zoom level; this is what makes a run costly.
+max_zoom = 4
+
+# The standard profiles, so every push tests what is published.
+# Layers: land, cropped-waterways and shoreline.
+profiles = [
+    "../standard-profiles/land.py",
+    "../standard-profiles/cropped_waterways.py",
+    "../standard-profiles/shoreline.py",
+]

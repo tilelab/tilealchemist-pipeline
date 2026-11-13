@@ -1,0 +1,28 @@
+{
+  "version": 8,
+  "name": "tilealchemist shoreline example",
+  "sources": {
+    "land": {
+      "type": "vector",
+      "url": "pmtiles://https://example.com/land.pmtiles"
+    },
+    "shoreline": {
+      "type": "vector",
+      "url": "pmtiles://https://example.com/shoreline.pmtiles"
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": { "background-color": "#0b1a2b" }
+    },
+    {
+      "id": "shoreline",
+      "type": "line",
+      "source": "shoreline",
+      "source-layer": "shoreline",
+      "paint": { "line-color": "#4a90d9", "line-width": 12, "line-blur": 8 }
+    }
+  ]
+}

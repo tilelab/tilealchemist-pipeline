@@ -1,0 +1,59 @@
+name: Test
+
+# Runs the real _pipeline.yml on real OpenFreeMap data at low zoom, with
+# tests/layers.toml: the standard profiles through the test plugin.
+
+# Also called by release.yml; tags run it only through there.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_call:
+
+jobs:
+  pipeline:
+    uses: ./.github/workflows/_pipeline.yml
+    with:
+      config: tests/layers.toml
+      source: test-plugin
+      # Two parts per layer, so `pmtiles merge` really runs.
+      shards: "2"
+
+  # A run writing nothing still succeeds, so check there are tiles.
+  check-tiles:
+    needs: pipeline
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        layer: [land, cropped-waterways, shoreline]
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.layer }}-pmtiles
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - run: pip install pmtiles
+
+      - name: Check the run produced tiles
+        env:
+          LAYER: ${{ matrix.layer }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pmtiles.reader import MmapSource, Reader
+
+          path = os.environ["LAYER"] + ".pmtiles"
+          with open(path, "rb") as f:
+              header = Reader(MmapSource(f)).header()
+          addressed = header["addressed_tiles_count"]
+          contents = header["tile_contents_count"]
+          print(f"{path}: {addressed} tiles, {contents} distinct contents")
+          assert addressed > 0, f"no tiles written to {path}"
+          assert 0 < contents <= addressed, (
+              f"{path}: {contents} distinct contents against {addressed} tiles")
+          assert header["clustered"], f"{path} is not clustered"
+          PY

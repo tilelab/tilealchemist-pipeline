@@ -1,0 +1,14 @@
+# The standard layers off one walk.
+#
+# No `schema`, so any source works: `plan` takes its source's.
+# `convert` has no source to ask; add the schema of its archive.
+
+max_zoom = 14
+
+# `{source}` becomes the archive's own attribution, so switching the
+# source never leaves a stale credit. See tilealchemist's
+# docs/reference/run-config.md.
+attribution = '<a href="https://github.com/tilelab/tilealchemist">tilealchemist</a> &middot; extracted from {source}'
+
+# Layers: land, cropped-waterways and shoreline.
+profiles = ["land.py", "cropped_waterways.py", "shoreline.py"]

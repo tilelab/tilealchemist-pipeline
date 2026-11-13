@@ -1,0 +1,23 @@
+# CI's stand-in for a third-party plugin; see tilealchemist's
+# docs/how-to-guides/write-a-schema-plugin.md.
+[project]
+name = "tilealchemist-test-plugin"
+version = "0.1.0"
+description = "CI test plugin for tilealchemist: OpenFreeMap and OpenMapTiles under names of its own."
+requires-python = ">=3.11"
+# Its source is the pipeline's.
+dependencies = ["tilealchemist-pipeline"]
+
+# The names configs use. A schema's must match its own `name`.
+[project.entry-points."tilealchemist.sources"]
+test-plugin = "tilealchemist_test_plugin:TestPluginSource"
+
+[project.entry-points."tilealchemist.schemas"]
+test-plugin = "tilealchemist_test_plugin:TEST_PLUGIN"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["tilealchemist_test_plugin"]

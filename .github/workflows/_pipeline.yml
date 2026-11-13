@@ -1,0 +1,208 @@
+name: tilealchemist pipeline (reusable)
+
+# Builds a run config's layers, one job per `tilealchemist-pipeline` step:
+#
+#   prepare-shards  `setup` and `plan`: walks the archive once, writes plan/.
+#   build-shards    `work`, one job per shard: writes parts/N/.
+#   merge           `merge`, one job per layer: <layer>-pmtiles artifact.
+#
+# Called with
+# `uses: tilelab/tilealchemist-pipeline/.github/workflows/_pipeline.yml@<ref>`
+# from the repository holding the run config and the files it names.
+# Publishes nothing; that is the caller's job. See
+# docs/reference/workflows.md.
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        description: 'Path of the run config in the calling repository, e.g. "layers.toml".'
+        required: true
+        type: string
+      source:
+        description: "The installed source that finds the archive; a config without `schema` takes its schema. Empty means openfreemap."
+        required: false
+        type: string
+        default: ""
+      source_url:
+        description: "The archive's URL, for a source that takes one, such as static-url."
+        required: false
+        type: string
+        default: ""
+      min_zoom:
+        description: "Overrides the config's min_zoom; empty keeps it."
+        required: false
+        type: string
+        default: ""
+      max_zoom:
+        description: "Overrides the config's max_zoom; empty keeps it."
+        required: false
+        type: string
+        default: ""
+      shards:
+        description: "Number of shards, one job each, at most 256. A multiple of 20 fills GitHub's concurrent jobs; see docs/how-to-guides/choose-the-number-of-shards.md."
+        required: false
+        type: string
+        default: "120"
+      artifact_namespace:
+        description: 'Prefix for internal artifact names, needed only when one workflow run calls this pipeline twice. Give "name", not "name-".'
+        required: false
+        type: string
+        default: ""
+
+# Log templates make warnings annotations and fold long listings; see
+# tilealchemist's docs/reference/cli.md "Log output".
+env:
+  ARTIFACT_PREFIX: ${{ inputs.artifact_namespace && format('{0}-', inputs.artifact_namespace) || '' }}
+  TILEALCHEMIST_LOG_WARNING: "::warning title={title}::{message}"
+  TILEALCHEMIST_LOG_GROUP: "::group::{title}"
+  TILEALCHEMIST_LOG_END_GROUP: "::endgroup::"
+
+# Every job checks the pipeline out into .tilealchemist-pipeline/ at its own
+# commit and runs .github/actions/setup from there.
+jobs:
+  prepare-shards:
+    runs-on: ubuntu-latest
+    # Read from plan.json, the only source of the shard count and layers.
+    outputs:
+      shards: ${{ steps.walk.outputs.shards }}
+      layers: ${{ steps.walk.outputs.layers }}
+    steps:
+      # Empty on GitHub Enterprise Server, where checkout would silently fall
+      # back to the default branch.
+      - name: Validate the pipeline checkout resolves
+        if: ${{ !job.workflow_repository || !job.workflow_sha }}
+        run: |
+          echo "::error::job.workflow_repository/job.workflow_sha are empty (they are not available on GitHub Enterprise Server), so the pipeline checkouts below can't be resolved"
+          exit 1
+
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .tilealchemist-pipeline
+
+      # Outside the directories the steps write. Only this job needs it: plan
+      # copies the profiles and plugins into plan/.
+      - name: Check out the caller's config
+        uses: actions/checkout@v7
+        with:
+          path: .caller
+          persist-credentials: false
+
+      # plan imports the profiles for their names, so it needs their
+      # dependencies.
+      - uses: ./.tilealchemist-pipeline/.github/actions/setup
+        with:
+          config: .caller/${{ inputs.config }}
+
+      # Empty inputs count as unset.
+      - id: walk
+        name: Walk archive directory and partition into per-shard manifests
+        env:
+          CONFIG: .caller/${{ inputs.config }}
+          SOURCE: ${{ inputs.source }}
+          SOURCE_URL: ${{ inputs.source_url }}
+          MIN_ZOOM: ${{ inputs.min_zoom }}
+          MAX_ZOOM: ${{ inputs.max_zoom }}
+          SHARDS: ${{ inputs.shards || '120' }}
+        run: |
+          tilealchemist-pipeline plan "$CONFIG" \
+            --source "$SOURCE" \
+            --source-url "$SOURCE_URL" \
+            --min-zoom "$MIN_ZOOM" \
+            --max-zoom "$MAX_ZOOM" \
+            --shards "$SHARDS"
+          jq -r '"shards=\([range(.shard_count)] | tojson)",
+                 "layers=\([.layers[].name] | tojson)"' \
+            plan/plan.json >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARTIFACT_PREFIX }}plan
+          path: plan/
+
+      # The merges need only plan.json.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARTIFACT_PREFIX }}plan-json
+          path: plan/plan.json
+
+  build-shards:
+    needs: prepare-shards
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.prepare-shards.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .tilealchemist-pipeline
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ env.ARTIFACT_PREFIX }}plan
+          path: plan
+
+      # From plan/'s copies of the profiles and plugins.
+      - uses: ./.tilealchemist-pipeline/.github/actions/setup
+        with:
+          planned_run: true
+
+      - name: "Build this shard's tile part(s)"
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          tilealchemist-pipeline work --shard "$SHARD"
+
+      # Rooted at parts/, so merges get every parts/N/ side by side, each
+      # with the `done` they check. A shard may have no part for a layer.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARTIFACT_PREFIX }}parts-${{ matrix.shard }}
+          path: parts/
+
+  merge:
+    needs: [prepare-shards, build-shards]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        layer: ${{ fromJson(needs.prepare-shards.outputs.layers) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .tilealchemist-pipeline
+
+      # No profiles: merging never imports one.
+      - uses: ./.tilealchemist-pipeline/.github/actions/setup
+
+      # Every shard's parts and `done`; the merge picks its layer's parts
+      # by file name.
+      - name: Download all part artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: ${{ env.ARTIFACT_PREFIX }}parts-*
+          path: parts
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ env.ARTIFACT_PREFIX }}plan-json
+          path: plan
+
+      - name: Merge this layer's parts into the layer
+        env:
+          LAYER: ${{ matrix.layer }}
+        run: |
+          tilealchemist-pipeline merge --layer "$LAYER"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.layer }}-pmtiles
+          path: layers/${{ matrix.layer }}.pmtiles

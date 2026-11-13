@@ -1,0 +1,78 @@
+name: Standard layers
+
+# Builds the land, cropped-waterways and shoreline layers from
+# standard-profiles/layers.toml in one _pipeline.yml run and publishes each
+# as a GitHub Release. See standard-profiles/README.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      min_zoom:
+        description: "Min zoom for every layer (default: 0)."
+        required: false
+        type: number
+        default: 0
+      max_zoom:
+        description: "Max zoom for every layer (default: 14)."
+        required: false
+        type: number
+        default: 14
+      shards:
+        description: "Number of shards, at most 256 (default: 120)."
+        required: false
+        type: number
+        default: 120
+  schedule:
+    - cron: "0 0 1 * *"
+
+jobs:
+  build:
+    uses: ./.github/workflows/_pipeline.yml
+    with:
+      config: standard-profiles/layers.toml
+      # The newest finished planet build, resolved at run time.
+      source: openfreemap
+      # Strings; empty (as on a schedule) keeps the config's.
+      min_zoom: ${{ format('{0}', inputs.min_zoom) }}
+      max_zoom: ${{ format('{0}', inputs.max_zoom) }}
+      shards: ${{ format('{0}', inputs.shards || 120) }}
+
+  publish-release-land:
+    needs: build
+    uses: ./.github/workflows/_publish-release.yml
+    permissions:
+      contents: write
+    with:
+      layer: land
+      tag: land-latest
+      title: "Global land layer"
+      # Dispatch inputs arrive as text, which a number input refuses;
+      # fromJSON converts them. A schedule has none and takes the defaults.
+      min_zoom: ${{ fromJSON(format('{0}', inputs.min_zoom || 0)) }}
+      max_zoom: ${{ fromJSON(format('{0}', inputs.max_zoom || 14)) }}
+
+  publish-release-cropped-waterways:
+    needs: build
+    uses: ./.github/workflows/_publish-release.yml
+    permissions:
+      contents: write
+    with:
+      layer: cropped-waterways
+      tag: cropped-waterways-latest
+      title: "Global cropped waterways layer"
+      # As for publish-release-land.
+      min_zoom: ${{ fromJSON(format('{0}', inputs.min_zoom || 0)) }}
+      max_zoom: ${{ fromJSON(format('{0}', inputs.max_zoom || 14)) }}
+
+  publish-release-shoreline:
+    needs: build
+    uses: ./.github/workflows/_publish-release.yml
+    permissions:
+      contents: write
+    with:
+      layer: shoreline
+      tag: shoreline-latest
+      title: "Global shoreline layer"
+      # As for publish-release-land.
+      min_zoom: ${{ fromJSON(format('{0}', inputs.min_zoom || 0)) }}
+      max_zoom: ${{ fromJSON(format('{0}', inputs.max_zoom || 14)) }}

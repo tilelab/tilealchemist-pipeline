@@ -1,0 +1,41 @@
+name: Set up tilealchemist-pipeline
+description: >-
+  Installs tilealchemist and this checkout's tilealchemist-pipeline and,
+  given a config or a planned run, the run's plugins and profile
+  dependencies.
+
+# Callers run this from a checkout of this repository at job.workflow_sha,
+# since `uses:` can't take `@${{ job.workflow_sha }}`. See
+# docs/explanation/architecture.md "On GitHub Actions".
+
+inputs:
+  config:
+    description: "A run config whose plugins and profile dependencies to install, before `plan`."
+    required: false
+    default: ""
+  planned_run:
+    description: "\"true\" to install those of plan/layers.toml instead, before `work`."
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.11"
+
+    # The checkout this action is in, three levels up, with the tilealchemist
+    # release it asks for.
+    - name: Install tilealchemist and the pipeline
+      shell: bash
+      run: pip install "$GITHUB_ACTION_PATH/../../.."
+
+    # See tilealchemist's docs/reference/cli.md.
+    - name: Install the run's plugins and profile dependencies
+      if: inputs.config != '' || inputs.planned_run == 'true'
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+      run: |
+        tilealchemist setup "${CONFIG:-plan/layers.toml}"

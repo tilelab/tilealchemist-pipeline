@@ -1,0 +1,48 @@
+[project]
+name = "tilealchemist-pipeline"
+version = "1.0.0"
+description = "Builds tilealchemist layers from a remote PMTiles archive, split across workers and merged."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = [
+    "tilealchemist>=1.0,<2",
+    "pmtiles",
+    "requests",
+]
+
+[project.urls]
+Repository = "https://github.com/tilelab/tilealchemist-pipeline"
+
+[project.scripts]
+tilealchemist-pipeline = "tilealchemist_pipeline.cli:main"
+
+# Declared the way plugins declare theirs; see docs/reference/sources.md.
+[project.entry-points."tilealchemist.sources"]
+openfreemap = "tilealchemist_pipeline.sources.openfreemap:OpenFreeMapSource"
+protomaps = "tilealchemist_pipeline.sources.protomaps:ProtomapsSource"
+static-url = "tilealchemist_pipeline.sources.static_url:StaticUrlSource"
+
+[build-system]
+# >=77 for the SPDX `license` string.
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["tilealchemist_pipeline*"]
+
+[tool.mypy]
+strict = true
+files = [
+    "tilealchemist_pipeline",
+    "standard-profiles",
+    "tests/plugin/tilealchemist_test_plugin.py",
+]
+# pmtiles is typed except for optimize_directories().
+untyped_calls_exclude = ["pmtiles.writer"]
+
+# No type information shipped; reached through tilealchemist.
+[[tool.mypy.overrides]]
+module = ["mapbox_vector_tile.*"]
+ignore_missing_imports = true
